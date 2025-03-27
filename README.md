@@ -690,4 +690,4 @@ This specification defines a complete alternative to JavaScript that could poten
 
 ---
 
-© 2023 HFML Language Specification Committee
+© 2025 Ericson Willians
