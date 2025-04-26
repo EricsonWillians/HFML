@@ -1,0 +1,250 @@
+(* ======================================================== *)
+(* HFML EBNF Specification - Enhanced for Type Safety      *)
+(* Version 1.0 - 2025-04-25                                *)
+(* ======================================================== *)
+
+(* --- 3.1 XML Foundational Structure --- *)
+
+Document        ::= XML_Prolog? Root XML_Misc* ;
+
+XML_Prolog      ::= XMLDecl? Misc* (DocTypeDecl Misc*)? ;
+XMLDecl         ::= '<?xml' VersionInfo EncodingDecl? StandaloneDecl? S? '?>' ;
+VersionInfo     ::= S 'version' Eq ("'" VersionNum "'" | '"' VersionNum '"') ;
+VersionNum      ::= '1.' [0-9]+ ;
+EncodingDecl    ::= S 'encoding' Eq ('"' Encoding '"' | "'" Encoding "'") ;
+Encoding        ::= [A-Za-z] ([A-Za-z0-9._] | '-')* ;
+StandaloneDecl  ::= S 'standalone' Eq ('"' ('yes' | 'no') '"' | "'" ('yes' | 'no') "'") ;
+Misc            ::= Comment | PI | S ;
+Comment         ::= '' ;
+PI              ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>' ;
+PITarget        ::= Name - (('X' | 'x') ('M' | 'm') ('L' | 'l')) ;
+DocTypeDecl     ::= (* Standard XML DOCTYPE Declaration - Simplified *) ;
+(* Note: Full XML preamble details follow W3C XML specifications *)
+
+
+(* --- 3.2 Root Element & General Content --- *)
+
+Root            ::= Element ; (* The single top-level element, typically an HFML component or HTML element *)
+
+Element         ::= EmptyElemTag | STag Content ETag ;
+
+EmptyElemTag    ::= '<' QName AttributeSet S? '/>' ;
+STag            ::= '<' QName AttributeSet S? '>' ;
+ETag            ::= '</' QName S? '>' ;
+
+(* Content model allows interleaving text, elements, expressions, core HFML, macros, etc. *)
+Content         ::= (CharData? ((Element | HFML_SpecialElement | MacroInvocation | Reference | EmbeddedExpression | CDATASection | PI | Comment) CharData?)*)? ;
+
+CharData        ::= (Char* - (Char* ('<' | '&' | '{') Char*)) ; (* Text excluding special characters *)
+CDATASection    ::= '<![CDATA[' (Char* - (Char* ']]>' Char*)) ']]>' ;
+
+
+(* --- 3.3 Attributes --- *)
+
+AttributeSet    ::= ( StandardAttribute
+                  | ExpressionAttribute
+                  | EventHandlerAttribute
+                  | BindingAttribute
+                  | LetBindingAttribute     (* New: Attribute-based let bindings *)
+                  | MacroArgumentAttribute  (* Contextual: Only within MacroInvocation *)
+                  | NamespaceAttribute
+                  )* S? ;
+
+(* Helper rule for attribute values that are expressions *)
+ExpressionAttValue ::= '"' EmbeddedExpression '"' | "'" EmbeddedExpression "'" ;
+(* Helper rule for attribute values that are plain strings *)
+StringAttValue     ::= '"' ([^<&"] | Reference)* '"' | "'" ([^<&'] | Reference)* "'" ;
+(* Helper rule for attribute values that can mix text, refs, and expressions *)
+MixedAttValue      ::= '"' ([^<&"] | Reference | EmbeddedExpression)* '"'
+                   |   "'" ([^<&'] | Reference | EmbeddedExpression)* "'" ;
+
+StandardAttribute ::= QName Eq MixedAttValue ;        (* Standard HTML/XML attribute *)
+ExpressionAttribute ::= QName Eq ExpressionAttValue ;   (* Attribute whose value *is* an expression *)
+EventHandlerAttribute ::= ('on:' Name) Eq ExpressionAttValue ; (* Event handler, e.g., on:click={handler} *)
+BindingAttribute ::= ('bind:' Name) Eq StringAttValue ; (* Two-way binding target, e.g., bind:value="'signalName'" *)
+LetBindingAttribute ::= ('let:' Name TypeAnnotation?) Eq ExpressionAttValue ; (* Local immutable binding on an element *)
+
+NamespaceAttribute ::= ('xmlns:' Name Eq StringAttValue) | ('xmlns' Eq StringAttValue) ;
+
+Reference       ::= EntityRef | CharRef ;
+EntityRef       ::= '&' Name ';' ;
+CharRef         ::= '&#' [0-9]+ ';' | '&#x' [0-9a-fA-F]+ ';' ;
+
+
+(* --- 3.4 Embedded Expressions --- *)
+
+EmbeddedExpression ::= '{' Expression '}' ;
+
+
+(* --- 3.5 Core HFML Constructs (Namespaced) --- *)
+
+HFML_SpecialElement ::= HFML_FunctionDefinition
+                    |   HFML_LambdaExpression
+                    (* |   HFML_LetElement (* Replaced by let: attribute *) *)
+                    |   HFML_Conditional
+                    |   HFML_Loop
+                    |   HFML_Switch
+                    |   HFML_SignalDefinition
+                    |   HFML_ComputedDefinition
+                    |   HFML_ComponentDefinition
+                    |   HFML_AsyncBlock
+                    |   HFML_AwaitExpr
+                    |   HFML_Fetch
+                    |   HFML_TryCatch
+                    |   HFML_ScriptImport
+                    |   HFML_ScriptEval
+                    |   HFML_DefineMacro
+                    ;
+
+(* Functions *)
+HFML_FunctionDefinition ::= '<hfml:function' S NameAttr ParamListAttr? ReturnsAttr? S? '>' FunctionBody '</hfml:function>' ;
+HFML_LambdaExpression   ::= '<hfml:lambda' S ParamListAttr ReturnsAttr? S? '>' FunctionBody '</hfml:lambda>' ;
+ParamListAttr           ::= 'params' Eq StringAttValue ; (* Value format e.g., "x: Int, y: String = {defaultValue}" *)
+ReturnsAttr             ::= 'returns' Eq TypeExpressionAttValue ; (* e.g., returns="Bool" or returns="{List<String>}" *)
+FunctionBody            ::= Expression | Content ; (* Expression result or rendered content *)
+
+(* Bindings - Now primarily via let: attribute *)
+(* HFML_LetElement ::= '<hfml:let>' (HFML_BindingDecl)+ '</hfml:let>' ; *)
+(* HFML_BindingDecl  ::= '<hfml:binding' S NameAttr TypeAttr? S ValueAttr S? '/>' ; *)
+
+(* Control Flow *)
+HFML_Conditional ::= '<hfml:if' S ConditionAttr S? '>'
+                         S? HFML_ThenClause? S? HFML_ElseClause? S?
+                     '</hfml:if>' ;
+HFML_ThenClause  ::= '<hfml:then>' Content '</hfml:then>' ;
+HFML_ElseClause  ::= '<hfml:else>' Content '</hfml:else>' ;
+
+HFML_Loop        ::= '<hfml:for' S EachAttr S InAttr S? '>' Content '</hfml:for>' ;
+EachAttr         ::= 'each' Eq StringAttValue ; (* Loop variable name(s), potentially with types "item: ItemType" *)
+InAttr           ::= 'in' Eq ExpressionAttValue ;
+
+HFML_Switch      ::= '<hfml:switch' S ValueAttr S? '>'
+                         S? (HFML_Case S?)* (HFML_DefaultCase S?)? S?
+                     '</hfml:switch>' ;
+HFML_Case        ::= '<hfml:case' S CaseValueAttr S? '>' Content '</hfml:case>' ;
+HFML_DefaultCase ::= '<hfml:default>' Content '</hfml:default>' ;
+CaseValueAttr    ::= 'value' Eq ExpressionAttValue ; (* Value to match against *)
+
+(* Reactivity & State *)
+HFML_SignalDefinition   ::= '<hfml:signal' S NameAttr TypeAttr? S InitialValueAttr S? '/>' ;
+HFML_ComputedDefinition ::= '<hfml:computed' S NameAttr TypeAttr? S? '>' Expression '</hfml:computed>' ;
+InitialValueAttr        ::= 'initial' Eq ExpressionAttValue ;
+
+(* Components *)
+HFML_ComponentDefinition ::= '<hfml:component' S NameAttr S? '>' ComponentContent '</hfml:component>' ;
+ComponentContent         ::= HFML_PropDefs? HFML_ComponentScript? HFML_Template ;
+HFML_PropDefs            ::= '<hfml:props>' (HFML_PropDef)* '</hfml:props>' ;
+HFML_PropDef             ::= '<hfml:prop' S NameAttr TypeAttr? RequiredAttr? DefaultAttr? S? '/>' ;
+RequiredAttr             ::= 'required' Eq ('"true"' | "'true'" | '"false"' | "'false'") ;
+DefaultAttr              ::= 'default' Eq ExpressionAttValue ;
+HFML_ComponentScript     ::= '<hfml:script>' (HFML_FunctionDefinition | HFML_SignalDefinition | HFML_ComputedDefinition | HFML_ScriptImport | Comment | PI)* '</hfml:script>' ; (* Component logic *)
+HFML_Template            ::= '<hfml:template>' Content '</hfml:template>' ; (* Component view *)
+
+(* Asynchronous Programming *)
+HFML_AsyncBlock  ::= '<hfml:async' S NameAttr? ParamListAttr? ReturnsAttr? S? '>' Content '</hfml:async>' ; (* Async function/scope *)
+HFML_AwaitExpr   ::= '<hfml:await>' Expression '</hfml:await>' ; (* Await promise/future *)
+HFML_Fetch       ::= '<hfml:fetch' S UrlAttr MethodAttr? HeaderAttr? BodyAttr? S? '>' FetchHandlers? '</hfml:fetch>' ;
+UrlAttr          ::= 'url' Eq ExpressionAttValue ;
+MethodAttr       ::= 'method' Eq StringAttValue ;
+HeaderAttr       ::= 'headers' Eq ExpressionAttValue ; (* Expression for headers object *)
+BodyAttr         ::= 'body' Eq ExpressionAttValue ; (* Expression for request body *)
+FetchHandlers    ::= HFML_ThenClause? HFML_CatchClause? ; (* Use standard then/catch elements *)
+HFML_CatchClause ::= '<hfml:catch' ErrorVarAttr? S? '>' Content '</hfml:catch>' ;
+ErrorVarAttr     ::= 'error' Eq StringAttValue ; (* Variable name for error, e.g., "e: ErrorType" *)
+
+HFML_TryCatch    ::= '<hfml:try>' Content '</hfml:try>' HFML_CatchClause ;
+
+(* JavaScript Interoperability *)
+HFML_ScriptImport ::= '<hfml:script:import' ImportSpecifier S 'from' Eq StringAttValue S? '/>' ;
+ImportSpecifier ::= (NameAttr | ('{' S? (ImportItem S? (',' S? ImportItem S?)*)? S? '}')) ;
+ImportItem      ::= Name (S 'as' S Name)? ;
+HFML_ScriptEval   ::= '<hfml:script:eval>' ScriptContent '</hfml:script:eval>' ;
+ScriptContent   ::= CharData* ; (* Raw JavaScript code *)
+
+
+(* --- 3.6 Macro System (Namespaced) --- *)
+
+HFML_DefineMacro ::= '<hfml:define-macro' S NameAttr HygieneAttr? S? '>' MacroParams? MacroBody '</hfml:define-macro>' ;
+MacroParams      ::= (HFML_MacroParam)* ;
+HFML_MacroParam  ::= '<hfml:param' S NameAttr OptionalAttr? S? '/>' ;
+HygieneAttr      ::= 'hygiene' Eq StringAttValue ; (* e.g., "default", "disabled", "unhygienic(vars...)" *)
+OptionalAttr     ::= 'optional' Eq ('"true"' | "'true'" | '"false"' | "'false'") ;
+
+(* Macro Invocation: Resolved semantically based on QName *)
+MacroInvocation  ::= '<' UserQName MacroArgumentSet S? '>' MacroArgumentContent? '</' UserQName '>'
+                 |   '<' UserQName MacroArgumentSet S? '/>' ;
+MacroArgumentSet ::= (MacroArgumentAttribute)* S? ;
+MacroArgumentAttribute ::= StandardAttribute | ExpressionAttribute ; (* Arguments via attributes *)
+MacroArgumentContent ::= Content ; (* Arguments via content - mapping is semantic *)
+UserQName        ::= QName ; (* A QName identified as a macro *)
+
+(* Macro Body Content & Unquoting *)
+MacroBody        ::= (MacroBodyItem)* ;
+MacroBodyItem    ::= QuotedElement | HFML_UnquoteElement | HFML_UnquoteSpliceElement | MacroRuntimeText | Comment | PI ;
+
+QuotedElement    ::= '<' QName QuotedAttributeSet S? '>' MacroBody '</' QName '>'
+                 |   '<' QName QuotedAttributeSet S? '/>' ;
+QuotedAttributeSet ::= ( StandardAttribute
+                       | QuotedExpressionAttribute (* Attr that might contain {hfml:unquote} *)
+                       | NamespaceAttribute
+                       )* S? ;
+QuotedExpressionAttribute ::= QName Eq ('"' QuotedAttValueContent* '"' | "'" QuotedAttValueContent* "'") ;
+QuotedAttValueContent     ::= [^<&"{'] | Reference | EmbeddedExpression | EmbeddedUnquote ; (* Chars or embedded forms *)
+
+MacroRuntimeText ::= ( [^<&"{'] | Reference | EmbeddedExpression | EmbeddedUnquote )+ ; (* Text possibly containing unquotes *)
+
+EmbeddedUnquote ::= '{hfml:unquote' S (ExprAttr | NameAttr) S? '}' ; (* Unquote inside attribute/text *)
+
+HFML_UnquoteElement       ::= '<hfml:unquote' S (ExprAttr | NameAttr) S? '/>' ; (* Unquotes node/value *)
+HFML_UnquoteSpliceElement ::= '<hfml:unquote-splice' S (ExprAttr | NameAttr) S? '/>' ; (* Unquotes sequence *)
+
+ExprAttr         ::= 'expr' Eq ExpressionAttValue ;
+
+
+(* --- 3.7 Type System Syntax --- *)
+
+TypeAnnotation        ::= ':' S? TypeExpression ; (* Used within let: attribute string *)
+TypeAttr              ::= 'type' Eq TypeExpressionAttValue ; (* Used on props, signals, computed *)
+TypeExpressionAttValue ::= '"' TypeExpression '"' | "'" TypeExpression "'" ; (* Type expression in an attribute *)
+
+(* Abstract non-terminal for type expressions *)
+TypeExpression   ::= (* Represents HFML type syntax. Examples: *)
+                   (* Primitive Types: Int, String, Bool, Float, Null, Void *)
+                   (* Collection Types: List<Int>, Map<String, User>, Set<Float> *)
+                   (* Function Types: (Int, Int) => Int, (String) => Void *)
+                   (* Union Types: String | Int *)
+                   (* Intersection Types: HasName & HasId *)
+                   (* Literal Types: "success" | "error" *)
+                   (* User-Defined Types: User, Product (resolved semantically) *)
+                   (* Recursive Types: RecursiveList<T> *)
+                   (* Detailed grammar TBD. *) ;
+
+
+(* --- 3.8 Helper Attribute Non-Terminals --- *)
+
+NameAttr         ::= 'name' Eq StringAttValue ;
+ConditionAttr    ::= 'condition' Eq ExpressionAttValue ;
+ValueAttr        ::= 'value' Eq ExpressionAttValue ;
+
+
+(* --- 3.9 Basic XML & Character Types --- *)
+
+QName            ::= (Prefix ':' LocalPart) | LocalPart ;
+Prefix           ::= NCName ;
+LocalPart        ::= NCName ;
+NCName           ::= Name - (NCName ':' NCName) ; (* Name without colons *)
+Name             ::= NameStartChar (NameChar)* ;
+NameStartChar    ::= ':' | [A-Z] | '_' | [a-z] | [#xC0-#xD6] | [#xD8-#xF6] | [#xF8-#x2FF] | [#x370-#x37D]
+                   | [#x37F-#x1FFF] | [#x200C-#x200D] | [#x2070-#x218F] | [#x2C00-#x2FEF]
+                   | [#x3001-#xD7FF] | [#xF900-#xFDCF] | [#xFDF0-#xFFFD] | [#x10000-#xEFFFF] ;
+NameChar         ::= NameStartChar | '-' | '.' | [0-9] | #xB7 | [#x0300-#x036F] | [#x203F-#x2040] ;
+Char             ::= [#x1-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF] ; (* Legal XML character *)
+S                ::= (#x20 | #x9 | #xD | #xA)+ ; (* XML Whitespace *)
+Eq               ::= S? '=' S? ;
+
+Expression       ::= (* The embedded HFML Functional Expression Language. *)
+                   (* Expected features: functional purity by default, immutable data structures *)
+                   (* (lists, maps/objects), support for first-class functions (lambdas), *)
+                   (* arithmetic/boolean operators, access to lexical scope (including let bindings), *)
+                   (* access to reactive values (signals/computeds), optional syntax/intrinsics *)
+                   (* for controlled side effects. Detailed grammar TBD. *) ;
